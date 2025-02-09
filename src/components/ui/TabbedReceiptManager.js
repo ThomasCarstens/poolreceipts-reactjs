@@ -16,7 +16,7 @@ const TabbedReceiptManager = () => {
     'Fournitures de carburant',
     'Entretien matériel'
   ];
-
+  // poolreceipts-25302.firebasestorage.app
   // Sample data for multiple months
   const initialReceipts = [
     {
