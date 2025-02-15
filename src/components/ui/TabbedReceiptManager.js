@@ -1,21 +1,35 @@
 import React, { useState, useEffect } from 'react';
-import { Image, FileText, Download } from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Button';
+import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Button';
 import { Button } from '@/components/ui/Button';
 import { Edit2, Save, Plus, Trash2 } from 'lucide-react';
-import { initializeApp } from 'firebase/app';
+import { getApp, getApps, initializeApp } from "firebase/app";
 import { getDatabase, ref, onValue } from 'firebase/database';
 
-// Firebase configuration
-const firebaseConfig = {
-  // Your Firebase configuration
-  databaseURL: "https://poolreceipts-25302-default-rtdb.europe-west1.firebasedatabase.app/"
-};
 
+
+import { Image, Download, FileLabel, LogIn, LogOut, Key, Mail } from 'lucide-react';
+
+import { 
+  getAuth, 
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged
+} from 'firebase/auth';
+
+const firebaseConfig = {
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  databaseURL: 'https://poolreceipts-25302-default-rtdb.europe-west1.firebasedatabase.app'
+};
 // Initialize Firebase
-const app = initializeApp(firebaseConfig);
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const database = getDatabase(app);
+const auth = getAuth(app);
 
 // Account codes mapping
 const accountCodes = {
@@ -43,32 +57,124 @@ const accountCodes = {
   "Cotisations": "628100"
 };
 
-const TabbedReceiptManager = () => {
+const LoginForm = ({ onLogin }) => {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setIsLoading(true);
+
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      // onLogin will be called by the auth state change listener
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <Card className="w-full max-w-md mx-auto mt-8">
+      <CardHeader>
+        <CardTitle className="text-center">Receipt Manager Login</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <div htmlFor="email">Email</div>
+            <div className="relative">
+              <Mail className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+              <Input
+                id="email"
+                type="email"
+                placeholder="your@email.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="pl-10"
+                required
+              />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <div htmlFor="password">Password</div>
+            <div className="relative">
+              <Key className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+              <Input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="pl-10"
+                required
+              />
+            </div>
+          </div>
+          {error && <p className="text-red-500 text-sm">{error}</p>}
+          <Button type="submit" className="w-full" disabled={isLoading}>
+            {isLoading ? 'Logging in...' : 'Login'}
+            <LogIn className="ml-2 h-4 w-4" />
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+};
+
+const TabbedReceiptManager = ({ onLogout }) => {
   const [receipts, setReceipts] = useState([]);
   const [selectedImage, setSelectedImage] = useState(null);
   const [activeTab, setActiveTab] = useState('2024-10');
+  const [currentUser, setCurrentUser] = useState(null);
 
   const tabs = [
-    { id: '2024-10', label: 'October 2024' },
-    { id: '2024-11', label: 'November 2024' },
-    { id: '2024-12', label: 'December 2024' },
-    { id: '2025-01', label: 'January 2025' },
-    { id: '2025-02', label: 'Février 2025' }
+    { id: '2024-10', title: 'October 2024' },
+    { id: '2024-11', title: 'November 2024' },
+    { id: '2024-12', title: 'December 2024' },
+    { id: '2025-01', title: 'January 2025' },
+    { id: '2025-02', title: 'February 2025' }
   ];
 
   useEffect(() => {
-    const receiptsRef = ref(database, 'receipts');
-    onValue(receiptsRef, (snapshot) => {
+    console.log('unsubscribeAuth: ')
+    // Get current user
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+    });
+
+    // Get receipts data
+    const receiptsRef = ref(database, '/receipts/');
+    const unsubscribeReceipts = onValue(receiptsRef, (snapshot) => {
       const data = snapshot.val();
+      console.log('data: ', data)
       if (data) {
         const receiptsList = Object.keys(data).map(key => ({
           id: key,
           ...data[key]
         }));
         setReceipts(receiptsList);
+        console.log(receiptsList)
       }
     });
+
+    return () => {
+      unsubscribeAuth();
+      unsubscribeReceipts();
+    };
   }, []);
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      onLogout();
+    } catch (error) {
+      console.error("Error signing out:", error);
+    }
+  };
 
   const filterReceiptsByMonth = (receipts, yearMonth) => {
     return receipts.filter(receipt => {
@@ -174,18 +280,33 @@ const TabbedReceiptManager = () => {
   );
 
   return (
-    <Card className="w-full max-w-6xl mx-auto">
+    <Card className="w-full max-w-6xl mx-auto mt-8">
       <CardHeader>
-        <CardTitle className="flex justify-between items-center">
-          <span>Receipt Management</span>
-          <Button 
-            onClick={exportCSV}
-            className="flex items-center gap-2"
-          >
-            <Download className="h-4 w-4" />
-            Export CSV
-          </Button>
-        </CardTitle>
+        <div className="flex justify-between items-center">
+          <CardTitle>Receipt Management</CardTitle>
+          <div className="flex items-center gap-4">
+            {currentUser && (
+              <div className="text-sm text-gray-600">
+                Logged in as: {currentUser.email}
+              </div>
+            )}
+            <Button 
+              onClick={exportCSV}
+              className="flex items-center gap-2"
+            >
+              <Download className="h-4 w-4" />
+              Export CSV
+            </Button>
+            <Button 
+              variant="outline"
+              onClick={handleLogout}
+              className="flex items-center gap-2"
+            >
+              <LogOut className="h-4 w-4" />
+              Logout
+            </Button>
+          </div>
+        </div>
         <div className="flex space-x-2 mt-4 border-b">
           {tabs.map(tab => (
             <button
@@ -197,7 +318,7 @@ const TabbedReceiptManager = () => {
                   : 'text-gray-500 hover:text-gray-700'
               }`}
             >
-              {tab.label}
+              {tab.title}
             </button>
           ))}
         </div>
@@ -257,4 +378,26 @@ const TabbedReceiptManager = () => {
   );
 };
 
-export default TabbedReceiptManager;
+const App = () => {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setIsLoggedIn(!!user);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  return (
+    <div className="container py-8">
+      {isLoggedIn ? (
+        <TabbedReceiptManager onLogout={() => setIsLoggedIn(false)} />
+      ) : (
+        <LoginForm onLogin={() => setIsLoggedIn(true)} />
+      )}
+    </div>
+  );
+};
+
+export default App;
