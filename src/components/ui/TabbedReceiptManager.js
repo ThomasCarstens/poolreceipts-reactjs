@@ -1,3 +1,23 @@
+
+// import React, { useState, useEffect } from 'react';
+// import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/Button';
+// import { Input } from '@/components/ui/Button';
+// import { Button } from '@/components/ui/Button';
+// import { Edit2, Save, Plus, Trash2 } from 'lucide-react';
+// import { getApp, getApps, initializeApp } from "firebase/app";
+// import { getDatabase, ref, onValue } from 'firebase/database';
+
+
+
+// import { Image, Download, FileLabel, LogIn, LogOut, Key, Mail } from 'lucide-react';
+
+// import { 
+//   getAuth, 
+//   signInWithEmailAndPassword,
+//   signOut,
+//   onAuthStateChanged
+// } from 'firebase/auth';
+
 import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Button';
@@ -5,6 +25,7 @@ import { Button } from '@/components/ui/Button';
 import { Edit2, Save, Plus, Trash2 } from 'lucide-react';
 import { getApp, getApps, initializeApp } from "firebase/app";
 import { getDatabase, ref, onValue } from 'firebase/database';
+import { getStorage, ref as storageRef, getDownloadURL } from 'firebase/storage';
 
 
 
@@ -30,6 +51,7 @@ const firebaseConfig = {
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const database = getDatabase(app);
 const auth = getAuth(app);
+const storage = getStorage(app);
 
 // Account codes mapping
 const accountCodes = {
@@ -128,8 +150,10 @@ const LoginForm = ({ onLogin }) => {
 const TabbedReceiptManager = ({ onLogout }) => {
   const [receipts, setReceipts] = useState([]);
   const [selectedImage, setSelectedImage] = useState(null);
+  const [selectedReceiptId, setSelectedReceiptId] = useState(null);
   const [activeTab, setActiveTab] = useState('2024-10');
   const [currentUser, setCurrentUser] = useState(null);
+  const [isLoadingImage, setIsLoadingImage] = useState(false);
 
   const tabs = [
     { id: '2024-10', title: 'October 2024' },
@@ -140,24 +164,21 @@ const TabbedReceiptManager = ({ onLogout }) => {
   ];
 
   useEffect(() => {
-    console.log('unsubscribeAuth: ')
     // Get current user
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
     });
 
     // Get receipts data
-    const receiptsRef = ref(database, '/receipts/');
+    const receiptsRef = ref(database, 'receipts');
     const unsubscribeReceipts = onValue(receiptsRef, (snapshot) => {
       const data = snapshot.val();
-      console.log('data: ', data)
       if (data) {
         const receiptsList = Object.keys(data).map(key => ({
           id: key,
           ...data[key]
         }));
         setReceipts(receiptsList);
-        console.log(receiptsList)
       }
     });
 
@@ -270,10 +291,31 @@ const TabbedReceiptManager = ({ onLogout }) => {
     document.body.removeChild(link);
   };
 
+  const loadReceiptImage = async (receiptId) => {
+    setIsLoadingImage(true);
+    try {
+      const imageRef = storageRef(storage, `/receipts/${receiptId}/image`);
+      const url = await getDownloadURL(imageRef);
+      setSelectedImage(url);
+      setSelectedReceiptId(receiptId);
+    } catch (error) {
+      console.error("Error loading image:", error);
+      alert("Failed to load receipt image");
+    } finally {
+      setIsLoadingImage(false);
+    }
+  };
+
   const ImageModal = ({ image, onClose }) => (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-white p-4 rounded-lg max-w-2xl max-h-[90vh] overflow-auto">
-        <img src={image || '/api/placeholder/400/320'} alt="Receipt" className="w-full h-auto" />
+      <div className="bg-white p-4 rounded-lg max-w-2xl max-h-[90vh] overflow-auto" onClick={e => e.stopPropagation()}>
+        {isLoadingImage ? (
+          <div className="flex items-center justify-center h-64">
+            <p className="text-gray-500">Loading image...</p>
+          </div>
+        ) : (
+          <img src={image || '/api/placeholder/400/320'} alt="Receipt" className="w-full h-auto" />
+        )}
         <Button onClick={onClose} className="mt-4 w-full">Close</Button>
       </div>
     </div>
@@ -348,7 +390,7 @@ const TabbedReceiptManager = ({ onLogout }) => {
                       variant="ghost"
                       size="sm"
                       className="h-8 w-8 p-0"
-                      onClick={() => setSelectedImage(receipt.image)}
+                      onClick={() => loadReceiptImage(receipt.id)}
                     >
                       <Image className="h-4 w-4" />
                     </Button>
@@ -371,7 +413,10 @@ const TabbedReceiptManager = ({ onLogout }) => {
       {selectedImage && (
         <ImageModal
           image={selectedImage}
-          onClose={() => setSelectedImage(null)}
+          onClose={() => {
+            setSelectedImage(null);
+            setSelectedReceiptId(null);
+          }}
         />
       )}
     </Card>
